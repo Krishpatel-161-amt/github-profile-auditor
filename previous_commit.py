@@ -1,3 +1,4 @@
+import base64
 import os
 
 import requests
@@ -5,6 +6,9 @@ from dotenv import find_dotenv, load_dotenv
 
 
 def main():
+    # asks the username
+    username = input("Enter your Github username to audit: ")
+
     # Find and Loads the github PAT
     dotenv_path = find_dotenv()
     load_dotenv(dotenv_path)
@@ -20,35 +24,30 @@ def main():
     }
 
     # Pagination setup
-    base_url = "https://api.github.com/users/Krishpatel-161-amt/repos"
+    base_url = f"https://api.github.com/users/{username}/repos"
     page_number = 1
+    all_repos = []  # FIX #1: Accumulator lives here in main(), before the loop
 
-    # This add type:owner (for No fork), per page 100 and set page number to 1
     while True:
         query_params = {"type": "owner", "per_page": 100, "page": page_number}
 
-        print(f"\n === Fetching Page {page_number} ===")
+        print(f"\n=== Fetching Page {page_number} ===")
 
-        # This grabs the repos
         r = requests.get(base_url, headers=my_header, params=query_params)
 
-        # Conditions to check status codes (Fail Fast)
         if r.status_code == 200:
-            # ---> FIX: Everything below this needed to be indented! <---
-            # Parses the JSON only if the request succeeded
             data = r.json()
 
-            # If api returns empty list
             if not data:
                 print("No more repos found. Audit complete!")
                 break
 
-            print(f"The request succeeded, succesfully fetched {len(data)} repos.")
+            print(f"The request succeeded, successfully fetched {len(data)} repos.")
 
-            # process the current pages of repos
-            get_repo(data)
+            # FIX #2: Capture return value and extend the main accumulator
+            page_repos = get_repo(data, my_header, username)
+            all_repos.extend(page_repos)
 
-            # Increment the page number for the next loop iteration
             page_number += 1
 
         elif r.status_code == 400:
@@ -67,55 +66,103 @@ def main():
             print(f"Unexpected error: {r.status_code}")
             return
 
+    print(f"\n=== Audit Complete: {len(all_repos)} repos collected ===")
+    # PDF generator plugs in here tomorrow:
+    # generate_pdf(username, all_repos)
+
+
+# This fetches the readmes
+def get_readme(owner, repo_name, headers):
+    readme_url = f"https://api.github.com/repos/{owner}/{repo_name}/readme"
+    r_readme = requests.get(readme_url, headers=headers)
+
+    if r_readme.status_code == 200:
+        readme_data = r_readme.json()
+        encoded_content = readme_data.get("content")
+
+        if encoded_content:
+            decoded_bytes = base64.b64decode(encoded_content)
+            readme_text = decoded_bytes.decode("utf-8")
+            return readme_text
+        return None
+
+    elif r_readme.status_code == 404:
+        return None
+    else:
+        print(f"Unexpected error fetching README: {r_readme.status_code}")
+        return None
+
 
 # This will grab the metadata about the repos
-def get_repo(repo_data):
+def get_repo(repo_data, headers, username):
+    all_repos = []  # FIX #1: Local list, fresh each call — no more global
+
     for repo in repo_data:
         repo_name = repo["name"]
-        print(f"=== Auditing: {repo_name} ===")
+        print(f"\n=== Auditing: {repo_name} ===")
 
-        # this will grab description, language, stars, updates, forks and license
         repo_desc = repo.get("description", "No description provided")
         repo_lang = repo.get("language")
         repo_stars = repo.get("stargazers_count")
         repo_updated = repo.get("updated_at")
 
+        audit_flags = []
+
         # Checks description
-        if repo_desc is None:
+        if repo_desc is None or repo_desc == "No description provided":
             print("     [!] AUDIT FLAG: Missing description!")
+            audit_flags.append("Missing description")
         else:
-            print(f"    -Desc:{repo_desc}")
+            print(f"    -Desc: {repo_desc}")
 
         # Checks Language
         if repo_lang is None:
             print("     [!] AUDIT FLAG: Empty repo or non-code files")
+            audit_flags.append("No primary language found")
         else:
-            print(f"    -Lang:{repo_lang}")
+            print(f"    -Lang: {repo_lang}")
 
-        # Checks stars:
-        print(f"    -Stars:{repo_stars}")
+        print(f"    -Stars: {repo_stars}")
+        print(f"    -Last updated: {repo_updated}")
 
-        # Checks updates:
-        print(f"    -Last updated:{repo_updated}")
-
-        # Checks how many forks the repo has
         repo_forks_count = repo.get("forks_count", 0)
-        print(f"    -Forks:{repo_forks_count}")
+        print(f"    -Forks: {repo_forks_count}")
 
-        # Checks if this repo is a fork of someone else's repo
         repo_is_forked = repo.get("fork", False)
         if repo_is_forked:
             print("     [!] AUDIT FLAG: This is a forked repo, not original code")
+            audit_flags.append("Forked repository")
 
-        # This checks if license exists, and if it does, grabs the "name" from inside it
-        repo_license = repo.get("license")  # Step 1: grab the license object (or None)
+        repo_license = repo.get("license")
+        final_license_name = "No License provided"
 
         if repo_license is None:
             print("    -License: No License provided")
         else:
-            print(
-                f"    -License: {repo_license.get('name', 'No License provided')}"
-            )  # Step 2: grab name from inside it
+            final_license_name = repo_license.get("name", "No License provided")
+            print(f"    -License: {final_license_name}")
+
+        readme_text = get_readme(username, repo_name, headers)
+        if readme_text:
+            print(f"    -README: Found! ({len(readme_text)} characters)")
+        else:
+            print("     [!] AUDIT FLAG: Missing README!")
+            audit_flags.append("Missing README")
+
+        repo_dict = {
+            "name": repo_name,
+            "description": repo_desc,
+            "language": repo_lang,
+            "stars": repo_stars,
+            "updated_at": repo_updated,
+            "forks": repo_forks_count,
+            "license": final_license_name,
+            "readme": readme_text,
+            "audit_flags": audit_flags,
+        }
+        all_repos.append(repo_dict)
+
+    return all_repos
 
 
 if __name__ == "__main__":
