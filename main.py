@@ -1,3 +1,4 @@
+import base64
 import os
 
 import requests
@@ -21,13 +22,14 @@ def main():
         "X-GitHub-Api-Version": "2026-03-10",
     }
 
-    # This grabs my profile and parses the json
+    # This grabs my profile
     r = requests.get(
         "https://api.github.com/users/Krishpatel-161-amt", headers=my_header
     )
 
     # Conditions to check status codes
     if r.status_code == 200:
+        # This parses the data into json
         data = r.json()
         print(" The request succeeded")
         print(data["login"])
@@ -39,7 +41,3 @@ def main():
         print("You hit the Rate Limit!")
     elif r.status_code == 404:
         print("User or repo doesnt exist")
-
-
-if __name__ == "__main__":
-    main()

@@ -3,6 +3,7 @@ import os
 
 import requests
 from dotenv import find_dotenv, load_dotenv
+from xhtml2pdf import pisa
 
 
 def main():
@@ -67,8 +68,8 @@ def main():
             return
 
     print(f"\n=== Audit Complete: {len(all_repos)} repos collected ===")
-    # PDF generator plugs in here tomorrow:
-    # generate_pdf(username, all_repos)
+    print_summary(username, all_repos)
+    generate_html_report(username, all_repos)
 
 
 # This fetches the readmes
@@ -76,10 +77,12 @@ def get_readme(owner, repo_name, headers):
     readme_url = f"https://api.github.com/repos/{owner}/{repo_name}/readme"
     r_readme = requests.get(readme_url, headers=headers)
 
+    # If only the request succeds, then parse into JSON
     if r_readme.status_code == 200:
         readme_data = r_readme.json()
         encoded_content = readme_data.get("content")
 
+        # Decoding base64 that github sends
         if encoded_content:
             decoded_bytes = base64.b64decode(encoded_content)
             readme_text = decoded_bytes.decode("utf-8")
@@ -95,7 +98,7 @@ def get_readme(owner, repo_name, headers):
 
 # This will grab the metadata about the repos
 def get_repo(repo_data, headers, username):
-    all_repos = []  # FIX #1: Local list, fresh each call — no more global
+    all_repos = []
 
     for repo in repo_data:
         repo_name = repo["name"]
@@ -122,9 +125,13 @@ def get_repo(repo_data, headers, username):
         else:
             print(f"    -Lang: {repo_lang}")
 
+        # Prints the star count
         print(f"    -Stars: {repo_stars}")
+
+        # Prints the last date/time the repo was updated
         print(f"    -Last updated: {repo_updated}")
 
+        # Checks if the repo was forked or not
         repo_forks_count = repo.get("forks_count", 0)
         print(f"    -Forks: {repo_forks_count}")
 
@@ -133,15 +140,18 @@ def get_repo(repo_data, headers, username):
             print("     [!] AUDIT FLAG: This is a forked repo, not original code")
             audit_flags.append("Forked repository")
 
+        # Checks for license
         repo_license = repo.get("license")
         final_license_name = "No License provided"
 
         if repo_license is None:
             print("    -License: No License provided")
+            audit_flags.append("Missing License")
         else:
             final_license_name = repo_license.get("name", "No License provided")
             print(f"    -License: {final_license_name}")
 
+        # This checks if the repo has readme or not
         readme_text = get_readme(username, repo_name, headers)
         if readme_text:
             print(f"    -README: Found! ({len(readme_text)} characters)")
@@ -163,6 +173,53 @@ def get_repo(repo_data, headers, username):
         all_repos.append(repo_dict)
 
     return all_repos
+
+
+def print_summary(username, all_repos):
+    print(f"\n=== Github profile fetched for {username} ===")
+    print(f"\n total repo count:{len(all_repos)}")
+
+    for repo in all_repos:
+        repo_name = repo["name"]
+
+        if repo["audit_flags"]:
+            res = ", ".join(repo["audit_flags"])
+            print(f"{repo_name}, {res}")
+
+
+def generate_html_report(username, all_repos):
+
+    # Build the entire HTML as one string first
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>GitHub Audit Report - {username}</title>
+</head>
+<body>
+    <h1>GitHub Audit Report for {username}</h1>
+    <p>Total repos scanned: {len(all_repos)}</p>
+"""
+
+    # This mirrors your print_summary loop exactly
+    for repo in all_repos:
+        if repo["audit_flags"]:
+            flags = ", ".join(repo["audit_flags"])
+            html_content += f"""
+    <h2>{repo["name"]}</h2>
+    <p><b>Issues:</b> {flags}</p>
+"""
+
+    # Close the HTML tags
+    html_content += """
+</body>
+</html>"""
+
+    # Write the whole string to a file
+    with open("audit_report.pdf", "wb") as pdf_file:
+        pisa.CreatePDF(html_content, dest=pdf_file)
+
+    print("PDF saved as audit_report.pdf")
+    print("\nReport saved to audit_report.html")
 
 
 if __name__ == "__main__":

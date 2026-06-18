@@ -1,2 +1,6 @@
 .env
 __pycache__/
+.env
+__pycache__/
+audit_report.html
+audit_report.pdf
