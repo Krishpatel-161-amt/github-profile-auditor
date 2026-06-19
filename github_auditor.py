@@ -4,6 +4,10 @@ import os
 import requests
 from dotenv import find_dotenv, load_dotenv
 from xhtml2pdf import pisa
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
 
 
 def main():
@@ -32,7 +36,7 @@ def main():
     while True:
         query_params = {"type": "owner", "per_page": 100, "page": page_number}
 
-        print(f"\n=== Fetching Page {page_number} ===")
+        console.print(f"\n[bold cyan]=== Fetching Page {page_number} ===[/bold cyan]")
 
         r = requests.get(base_url, headers=my_header, params=query_params)
 
@@ -40,10 +44,10 @@ def main():
             data = r.json()
 
             if not data:
-                print("No more repos found. Audit complete!")
+                console.print("[bold green]No more repos found. Audit complete![/bold green]")
                 break
 
-            print(f"The request succeeded, successfully fetched {len(data)} repos.")
+            console.print(f"The request succeeded, successfully fetched [bold]{len(data)}[/bold] repos.")
 
             # FIX #2: Capture return value and extend the main accumulator
             page_repos = get_repo(data, my_header, username)
@@ -52,22 +56,22 @@ def main():
             page_number += 1
 
         elif r.status_code == 400:
-            print("Bad request")
+            console.print("[bold red]Bad request[/bold red]")
             return
         elif r.status_code == 401:
-            print("Unauthorized")
+            console.print("[bold red]Unauthorized[/bold red]")
             return
         elif r.status_code == 403:
-            print("You hit the Rate Limit!")
+            console.print("[bold red]You hit the Rate Limit![/bold red]")
             return
         elif r.status_code == 404:
-            print("User or repo doesnt exist")
+            console.print("[bold red]User or repo doesnt exist[/bold red]")
             return
         else:
-            print(f"Unexpected error: {r.status_code}")
+            console.print(f"[bold red]Unexpected error: {r.status_code}[/bold red]")
             return
 
-    print(f"\n=== Audit Complete: {len(all_repos)} repos collected ===")
+    console.print(f"\n[bold green]=== Audit Complete: {len(all_repos)} repos collected ===[/bold green]")
     print_summary(username, all_repos)
     generate_html_report(username, all_repos)
 
@@ -92,7 +96,7 @@ def get_readme(owner, repo_name, headers):
     elif r_readme.status_code == 404:
         return None
     else:
-        print(f"Unexpected error fetching README: {r_readme.status_code}")
+        console.print(f"[bold red]Unexpected error fetching README: {r_readme.status_code}[/bold red]")
         return None
 
 
@@ -102,7 +106,7 @@ def get_repo(repo_data, headers, username):
 
     for repo in repo_data:
         repo_name = repo["name"]
-        print(f"\n=== Auditing: {repo_name} ===")
+        console.print(f"\n[bold cyan]=== Auditing: {repo_name} ===[/bold cyan]")
 
         repo_desc = repo.get("description", "No description provided")
         repo_lang = repo.get("language")
@@ -113,31 +117,31 @@ def get_repo(repo_data, headers, username):
 
         # Checks description
         if repo_desc is None or repo_desc == "No description provided":
-            print("     [!] AUDIT FLAG: Missing description!")
+            console.print("     [bold red][!] AUDIT FLAG: Missing description![/bold red]")
             audit_flags.append("Missing description")
         else:
-            print(f"    -Desc: {repo_desc}")
+            console.print(f"    -Desc: {repo_desc}")
 
         # Checks Language
         if repo_lang is None:
-            print("     [!] AUDIT FLAG: Empty repo or non-code files")
+            console.print("     [bold red][!] AUDIT FLAG: Empty repo or non-code files[/bold red]")
             audit_flags.append("No primary language found")
         else:
-            print(f"    -Lang: {repo_lang}")
+            console.print(f"    -Lang: {repo_lang}")
 
         # Prints the star count
-        print(f"    -Stars: {repo_stars}")
+        console.print(f"    -Stars: {repo_stars}")
 
         # Prints the last date/time the repo was updated
-        print(f"    -Last updated: {repo_updated}")
+        console.print(f"    -Last updated: {repo_updated}")
 
         # Checks if the repo was forked or not
         repo_forks_count = repo.get("forks_count", 0)
-        print(f"    -Forks: {repo_forks_count}")
+        console.print(f"    -Forks: {repo_forks_count}")
 
         repo_is_forked = repo.get("fork", False)
         if repo_is_forked:
-            print("     [!] AUDIT FLAG: This is a forked repo, not original code")
+            console.print("     [bold yellow][!] AUDIT FLAG: This is a forked repo, not original code[/bold yellow]")
             audit_flags.append("Forked repository")
 
         # Checks for license
@@ -145,18 +149,18 @@ def get_repo(repo_data, headers, username):
         final_license_name = "No License provided"
 
         if repo_license is None:
-            print("    -License: No License provided")
+            console.print("    -License: No License provided")
             audit_flags.append("Missing License")
         else:
             final_license_name = repo_license.get("name", "No License provided")
-            print(f"    -License: {final_license_name}")
+            console.print(f"    -License: {final_license_name}")
 
         # This checks if the repo has readme or not
         readme_text = get_readme(username, repo_name, headers)
         if readme_text:
-            print(f"    -README: Found! ({len(readme_text)} characters)")
+            console.print(f"    -README: Found! ({len(readme_text)} characters)")
         else:
-            print("     [!] AUDIT FLAG: Missing README!")
+            console.print("     [bold red][!] AUDIT FLAG: Missing README![/bold red]")
             audit_flags.append("Missing README")
 
         repo_dict = {
@@ -176,15 +180,29 @@ def get_repo(repo_data, headers, username):
 
 
 def print_summary(username, all_repos):
-    print(f"\n=== Github profile fetched for {username} ===")
-    print(f"\n total repo count:{len(all_repos)}")
+    console.print(f"\n[bold magenta]=== Github profile fetched for {username} ===[/bold magenta]")
+    console.print(f"total repo count: [bold]{len(all_repos)}[/bold]\n")
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Repository")
+    table.add_column("Language", justify="center")
+    table.add_column("Stars", justify="right")
+    table.add_column("Audit Flags", style="red")
 
     for repo in all_repos:
-        repo_name = repo["name"]
-
         if repo["audit_flags"]:
-            res = ", ".join(repo["audit_flags"])
-            print(f"{repo_name}, {res}")
+            flags = ", ".join(repo["audit_flags"])
+        else:
+            flags = "[green]Clean[/green]"
+            
+        table.add_row(
+            repo["name"], 
+            str(repo["language"] or "N/A"), 
+            str(repo["stars"]), 
+            flags
+        )
+
+    console.print(table)
 
 
 def generate_html_report(username, all_repos):
@@ -218,8 +236,8 @@ def generate_html_report(username, all_repos):
     with open("audit_report.pdf", "wb") as pdf_file:
         pisa.CreatePDF(html_content, dest=pdf_file)
 
-    print("PDF saved as audit_report.pdf")
-    print("\nReport saved to audit_report.html")
+    console.print("[bold blue]PDF saved as audit_report.pdf[/bold blue]")
+    console.print("\n[bold blue]Report saved to audit_report.html[/bold blue]")
 
 
 if __name__ == "__main__":
