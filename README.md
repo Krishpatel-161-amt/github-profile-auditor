@@ -78,6 +78,7 @@ lens_slice: Missing description, Missing license
 Report saved to audit_report.html
 PDF saved as audit_report.pdf
 ```
+<img width="1528" height="317" alt="Screenshot 2026-06-19 095605" src="https://github.com/user-attachments/assets/acdd7354-54db-44e8-90cf-44a9405858ac" />
 
 ---
 
