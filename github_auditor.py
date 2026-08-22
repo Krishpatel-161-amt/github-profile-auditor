@@ -1,11 +1,11 @@
-import base64 
+import base64
 import os
 
-import requests # type: ignore
-from dotenv import find_dotenv, load_dotenv # type: ignore
-from rich.console import Console # type: ignore
-from rich.table import Table # type: ignore
-from xhtml2pdf import pisa # type: ignore
+import requests
+from dotenv import find_dotenv, load_dotenv
+from rich.console import Console
+from rich.table import Table
+from xhtml2pdf import pisa
 
 console = Console()
 
@@ -122,7 +122,7 @@ def get_repo(repo_data, headers, username):
 
         # Checks description
         if repo_desc is None or repo_desc == "No description provided":
-            console.print("     [bold red][!] AUDIT FLAG: Missing description![/bold red]")
+            console.print("[bold red][!] AUDIT FLAG: Missing description![/bold red]")
             audit_flags.append("Missing description")
         else:
             console.print(f"    -Desc: {repo_desc}")

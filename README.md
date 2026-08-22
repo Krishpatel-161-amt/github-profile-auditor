@@ -60,8 +60,31 @@ You will be prompted to enter a GitHub username. The tool will then:
 1. Fetch all public repositories for that user
 2. Print a live audit log to the terminal
 3. Display a clean summary of flagged repositories
-4. Save `audit_report.html` to the project folder
-5. Save `audit_report.pdf` to the project folder
+4. Save `audit_report.pdf` to the project folder
+
+---
+
+## Running with Docker
+
+If you don't want to install Python or the dependencies directly on your machine, you can run the auditor using Docker!
+
+1. **Build the image:**
+```bash
+docker build -t github-auditor .
+```
+
+2. **Run the container:**
+Because the script requires user input (`-it`), your `.env` token (`--env-file`), and needs to output a PDF back to your machine (`-v`), use the command below for your operating system:
+
+**Windows (PowerShell):**
+```powershell
+docker run -it --env-file .env -v ${PWD}:/app github-auditor
+```
+
+**Mac / Linux / Git Bash:**
+```bash
+docker run -it --env-file .env -v $(pwd):/app github-auditor
+```
 
 ---
 
