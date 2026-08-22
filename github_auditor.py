@@ -1,17 +1,16 @@
-import base64
+import base64 
 import os
 
-import requests
-from dotenv import find_dotenv, load_dotenv
-from xhtml2pdf import pisa
-from rich.console import Console
-from rich.table import Table
+import requests # type: ignore
+from dotenv import find_dotenv, load_dotenv # type: ignore
+from rich.console import Console # type: ignore
+from rich.table import Table # type: ignore
+from xhtml2pdf import pisa # type: ignore
 
 console = Console()
 
-
 def main():
-    # asks the username
+    
     username = input("Enter your Github username to audit: ")
 
     # Find and Loads the github PAT
@@ -21,24 +20,32 @@ def main():
     # variable for token
     Github_token = os.getenv("GitHub_PAT")
 
+    if not Github_token:
+        console.print("[bold red]Error: Githhub_PAT not found in .env file![/bold red]")
+        return
+
     my_header = {
         "Authorization": f"Bearer {Github_token}",
         "Accept": "application/vnd.github+json",
         "User-Agent": "My-Python-App",
-        "X-GitHub-Api-Version": "2026-03-10",
+        "X-GitHub-Api-Version": "2022-11-28"
     }
 
     # Pagination setup
     base_url = f"https://api.github.com/users/{username}/repos"
     page_number = 1
-    all_repos = []  # FIX #1: Accumulator lives here in main(), before the loop
+    all_repos = []  
 
     while True:
         query_params = {"type": "owner", "per_page": 100, "page": page_number}
 
         console.print(f"\n[bold cyan]=== Fetching Page {page_number} ===[/bold cyan]")
 
-        r = requests.get(base_url, headers=my_header, params=query_params)
+        try:
+            r = requests.get(base_url, headers=my_header, params=query_params)
+        except requests.exceptions.RequestException as e:
+            console.print(f"[bold red] Network Connection Failed!: {e}[/bold red]")
+            return
 
         if r.status_code == 200:
             data = r.json()
@@ -49,10 +56,8 @@ def main():
 
             console.print(f"The request succeeded, successfully fetched [bold]{len(data)}[/bold] repos.")
 
-            # FIX #2: Capture return value and extend the main accumulator
             page_repos = get_repo(data, my_header, username)
             all_repos.extend(page_repos)
-
             page_number += 1
 
         elif r.status_code == 400:
@@ -237,8 +242,6 @@ def generate_html_report(username, all_repos):
         pisa.CreatePDF(html_content, dest=pdf_file)
 
     console.print("[bold blue]PDF saved as audit_report.pdf[/bold blue]")
-    console.print("\n[bold blue]Report saved to audit_report.html[/bold blue]")
-
-
+    
 if __name__ == "__main__":
     main()
