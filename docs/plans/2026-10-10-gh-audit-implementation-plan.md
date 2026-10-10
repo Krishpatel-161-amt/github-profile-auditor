@@ -8,7 +8,9 @@
 
 **Tech stack:** Python ≥ 3.10, `requests`, `python-dotenv`, `rich` and `argparse` (stdlib). Dev only: `pytest` and `responses`.
 
-**Status of the code in this plan:** every code block below was run in a prototype before it was written down. The final suite is 103 passing tests. If something doesn't pass, compare your file against the task character by character before changing anything.
+**Status of the code in this plan:** every code block below was run in a prototype before it was written down. The final suite is 107 passing tests. If something doesn't pass, compare your file against the task character by character before changing anything.
+
+**Revision 2 (2026-10-10):** updated after the implementer's review. Section 2.11 lists what changed.
 
 ---
 
@@ -57,6 +59,15 @@ python -m pytest tests/test_checks.py # one file
 python -m pytest -k stale             # tests whose name contains "stale"
 python -m pytest -x                   # stop at first failure
 ```
+
+If your shell doesn't stay activated between commands, call the venv's Python directly. It's equivalent: `.venv/Scripts/python -m pytest` on Windows, `.venv/bin/python -m pytest` on Linux/macOS.
+
+### 1.4 Environment notes
+
+- **The owner works on Windows (PowerShell) and Linux.** Where a command differs, both versions are given.
+- **Docker is installed** on the owner's Windows machine, and Task 28 needs it.
+- **Leave the old `refactoring-the-auditor` branch alone,** including its stale worktree entry at `.worktrees/refactoring-the-auditor`. It's from an abandoned earlier attempt, and the owner will clean it up.
+- **If a test fails for a different reason than the plan predicts,** stop and report it, as CLAUDE.md says. Every "Expected" line in this revision was checked against the prototype.
 
 ---
 
@@ -118,8 +129,9 @@ With `--info`, no checks run, so the code is 0 or 2, never 1.
 | Failure | Type | What happens |
 |---|---|---|
 | 401 | `FatalError` | abort: "GitHub token is invalid or expired" |
-| 403/429 with `x-ratelimit-remaining: 0` | `FatalError` | abort: "GitHub rate limit hit, resets at HH:MM" |
-| 403 with `retry-after`, or any 429 | `FatalError` | abort: "GitHub rate limit hit, try again in Ns" |
+| 403/429 with `x-ratelimit-remaining: 0` and a reset time | `FatalError` | abort: "GitHub rate limit hit, resets at HH:MM" |
+| 403/429 with a numeric `retry-after` | `FatalError` | abort: "GitHub rate limit hit, try again in Ns" |
+| any other rate limit (429, or remaining `0` with no usable time) | `FatalError` | abort: "GitHub rate limit hit, try again later". We never invent a time GitHub didn't send |
 | other 403 | `FatalError` | abort: "GitHub token lacks permission for this request" |
 | timeout | `RequestError` | "timed out after 10s" |
 | connection failure | `RequestError` | "could not connect to GitHub" |
@@ -129,7 +141,7 @@ With `--info`, no checks run, so the code is 0 or 2, never 1.
 - A `RequestError` during the **README** call is recorded as unknown, and the run continues.
 - A `RequestError` during `/user` or `/user/repos` aborts the run, because there's nothing to audit without the list.
 - A `FatalError` always aborts.
-- Aborting means printing **one** line to stderr (`Error: <message>`) and exiting 2. **Never a stack trace.**
+- Aborting means the **last** thing printed to stderr is one line, `Error: <message>`, and the exit code is 2. Progress lines such as "Checking token..." may come before it. **Never a stack trace**, and nothing goes to stdout.
 - No retries. Every request has a 10-second timeout.
 
 ### 2.7 Token lookup
@@ -163,7 +175,8 @@ With `--info`, no checks run, so the code is 0 or 2, never 1.
 └────────────────────────┴──────────────┴──────────────────────────────────────────────────────────────────┘
 ```
 
-- **The summary line is always printed first.**
+- **The summary line is always printed first,** on one line, with correct singular/plural ("1 repo audited", "skipped 1 fork").
+- **Redirected output** (to a file or pipe) is 120 columns wide and UTF-8 encoded, so it never wraps the summary or crashes on Windows.
 - **Each repo falls into exactly one summary bucket**, checked in this order: has an error → "with errors"; else has an unknown → "unknown"; else has a warning → "warnings only"; else "clean".
 - **Info table:** sorted by name (case-insensitive). Size is KB ÷ 1024, shown as "0 MB" (size 0), "<0.1 MB", or one decimal place. Last push is `YYYY-MM`. Missing values show as `—`. **Stars and forks are not shown in the table**, only in JSON.
 - **Hygiene table:** worst first (most errors, then unknowns, then warnings, then name). Each repo gets one row per group (errors, warnings, unknown), or a single `✓ clean` row. Colors: errors red, warnings yellow, unknown blue, clean green. Headers are bold magenta.
@@ -203,6 +216,25 @@ Markdown export, a database, a configurable stale threshold, private repos, a `-
 3. **The summary counts repos per bucket** (2.8), not individual findings. Scripts that want finding totals can count `findings`.
 4. **The Info table is sorted by name.**
 
+All four are confirmed by the owner.
+
+### 2.11 What changed in revision 2 (after the implementer's review)
+
+| # | Problem | Fix | Task |
+|---|---|---|---|
+| 1 | A CLI test would start failing on 2027-09-01, because `main` used the real clock | `main(argv, now=None)`; CLI tests call it through `run()`, which passes `NOW` | 25 |
+| 2 | `license = { text = "MIT" }` is deprecated in setuptools ≥ 77 | `license = "MIT"` and `setuptools>=77` | 1 |
+| 3 | On Windows, redirected output (`gh-audit > out.txt`) crashed on ✓ ✗ ⚠ (cp1252) | `use_utf8_output()` switches stdout/stderr to UTF-8, with a regression test | 26 |
+| 4 | Task 6 predicted the wrong failure message | Expected failures corrected | 6 |
+| 5 | "One line to stderr" contradicted the progress messages | Wording in 2.6 fixed, test renamed | 26 |
+| 6, 7 | Invented "60s" wait time and a 1970 reset time | Only times GitHub sent are shown, otherwise "try again later" | 7 |
+| 8 | "1 repos", "1 forks" | `plural()` helper, shared with the status column | 20, 22 |
+| 9 | Summary wrapped at 80 columns when redirected | Redirected output uses 120 columns | 25 |
+| 10 | Linux-only commands | PowerShell versions added, and the clean-environment check installs non-editable | 27, 28, 30 |
+| 11 | Wrong section name in the API reference | Fixed in 3.1 | — |
+| 12 | `fetch_login` written before it was tested | Its test is now in Task 12 | 12 |
+| 13 | The Info test checked that `"4"` appeared anywhere | It now checks whole table rows, cell by cell | 21 |
+
 ---
 
 ## Part 3: Background you need
@@ -211,7 +243,7 @@ Markdown export, a database, a configurable stale threshold, private repos, a `-
 
 - `github_auditor.py` is the old MVP. **It's reference only. Don't edit it**, and it's deleted in Task 30. It prompts for a username, prints as it goes, and writes a PDF. None of that survives.
 - `requirements.txt` and `Dockerfile` belong to the old script and are replaced in Phase 7.
-- `docs/github-api-reference.md` is a condensed GitHub API reference. Read its "Rate limits", "Pagination" and "Error handling" sections before Phase 2.
+- `docs/github-api-reference.md` is a condensed GitHub API reference. Before Phase 2, read its "Rate limits" and "Error handling" sections, plus the pagination bullet under "Efficiency".
 
 ### 3.2 GitHub API facts this code relies on
 
@@ -270,7 +302,7 @@ Markdown export, a database, a configurable stale threshold, private repos, a `-
 7. **Network code is tested only through `responses`.** Never call real GitHub, and never use `unittest.mock` to patch `requests` internals.
 8. **Don't test the language or libraries.** No tests that a dataclass stores a field, or that argparse parses `--json`.
 9. **See every new test fail once.** If a new test passes before you've written the code, either the behavior already exists (fine for "guard" tests, which the plan points out) or the test is broken.
-10. **Tests don't depend on the clock or on each other.** "Now" is passed in (`NOW` in factories), and every test builds its own data.
+10. **Tests don't depend on the clock or on each other.** "Now" is always passed in: `check_repo(repo, NOW)`, and `main(..., now=NOW)` through the `run()` helper. Every test builds its own data. A test that would pass today and fail next year is a bug.
 
 ---
 
@@ -298,7 +330,7 @@ git checkout -b refactor/gh-audit
 **Step 2: Create `pyproject.toml`.**
 ```toml
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -306,7 +338,7 @@ name = "gh-audit"
 version = "1.0.0"
 description = "Audit your own public GitHub repos for missing README, license, description, topics and more."
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
     "requests>=2.31",
     "python-dotenv>=1.0",
@@ -813,7 +845,11 @@ def test_allow_404_does_not_hide_other_errors(client):
 ```
 
 **Step 2: Run.** `python -m pytest tests/test_client.py`
-Expected: **FAIL**. Some fail with `DID NOT RAISE`, and some with a `TypeError` about `allow_404`.
+Expected: **all 7 new tests FAIL** (the parametrized one counts four times):
+- `test_401_is_fatal` and the four `test_other_statuses_are_request_errors` cases fail with **`requests.exceptions.JSONDecodeError`**. Task 5's `get_json` tries to parse the empty error body before anything checks the status.
+- The two `allow_404` tests fail with **`TypeError: ... unexpected keyword argument 'allow_404'`**.
+
+The three Task 5 tests still pass.
 
 **Step 3: Implement.** Replace `get_json` in the class:
 ```python
@@ -876,9 +912,16 @@ def test_secondary_rate_limit_shows_retry_after(client):
 
 
 @responses.activate
-def test_429_without_headers_is_still_a_rate_limit(client):
+def test_429_without_headers_says_try_again_later(client):
     responses.get(f"{API_URL}/user", status=429)
-    with pytest.raises(FatalError, match="rate limit"):
+    with pytest.raises(FatalError, match="rate limit hit, try again later"):
+        client.get_json("/user")
+
+
+@responses.activate
+def test_rate_limit_without_reset_time_does_not_invent_one(client):
+    responses.get(f"{API_URL}/user", status=403, headers={"x-ratelimit-remaining": "0"})
+    with pytest.raises(FatalError, match="try again later"):
         client.get_json("/user")
 
 
@@ -890,21 +933,33 @@ def test_plain_403_means_missing_permission(client):
 ```
 Note how the expected reset time is computed in the test the same way as in the code (local time). Hard-coding `"14:32"` would make the test pass or fail depending on your timezone.
 
-**Step 2: Run.** Expected: **FAIL**. They raise `RequestError` ("HTTP 403") instead of `FatalError`.
+**Step 2: Run.** Expected: **all 6 new tests FAIL** (the parametrized one counts twice) with `RequestError: GitHub returned HTTP 403` (or 429) instead of `FatalError`.
 
 **Step 3: Implement.** Add `from datetime import datetime` to the top of `client.py`. In `_raise_for_status`, insert this block **between** the 401 check and the final `raise`:
 ```python
     if status in (403, 429):
-        if response.headers.get("x-ratelimit-remaining") == "0":
-            reset = int(response.headers.get("x-ratelimit-reset", "0"))
-            reset_time = datetime.fromtimestamp(reset).strftime("%H:%M")
-            raise FatalError(f"GitHub rate limit hit, resets at {reset_time}")
-        if status == 429 or "retry-after" in response.headers:
-            wait = response.headers.get("retry-after", "60")
-            raise FatalError(f"GitHub rate limit hit, try again in {wait}s")
+        headers = response.headers
+        if status == 429 or headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers:
+            raise _rate_limit_error(headers)
         raise FatalError("GitHub token lacks permission for this request")
 ```
-Header lookups are case-insensitive in `requests`, so `x-ratelimit-remaining` matches however GitHub capitalizes it.
+Then add this function **below** `_raise_for_status`:
+```python
+def _rate_limit_error(headers) -> FatalError:
+    """Say when to retry, but only using times GitHub actually sent."""
+    reset = headers.get("x-ratelimit-reset", "")
+    if headers.get("x-ratelimit-remaining") == "0" and reset.isdigit():
+        reset_time = datetime.fromtimestamp(int(reset)).strftime("%H:%M")
+        return FatalError(f"GitHub rate limit hit, resets at {reset_time}")
+    wait = headers.get("retry-after", "")
+    if wait.isdigit():
+        return FatalError(f"GitHub rate limit hit, try again in {wait}s")
+    return FatalError("GitHub rate limit hit, try again later")
+```
+Notes:
+- It *returns* the error, and the caller raises it. That keeps the "what kind of failure is this?" decision in `_raise_for_status`, and the "how do we word it?" part here.
+- `.isdigit()` guards `int(...)`. A missing or garbled header falls through to "try again later" instead of crashing or showing 1970.
+- Header lookups are case-insensitive in `requests`, so `x-ratelimit-remaining` matches however GitHub capitalizes it.
 
 **Step 4: Run.** `python -m pytest`. Expected: all pass.
 
@@ -1219,7 +1274,7 @@ import responses
 
 from factories import FAKE_TOKEN, make_raw_repo
 from gh_audit.client import API_URL, GitHubClient
-from gh_audit.fetch import fetch_repos, parse_repo
+from gh_audit.fetch import fetch_login, fetch_repos, parse_repo
 
 
 @pytest.fixture
@@ -1228,7 +1283,13 @@ def client():
 ```
 Append:
 ```python
-# ---------- fetch_repos ----------
+# ---------- fetch_login / fetch_repos ----------
+
+@responses.activate
+def test_fetch_login_returns_the_token_owner(client):
+    responses.get(f"{API_URL}/user", json={"login": "octocat"})
+    assert fetch_login(client) == "octocat"
+
 
 @responses.activate
 def test_fetch_repos_skips_and_counts_forks_and_archived(client):
@@ -1255,7 +1316,7 @@ def test_fetch_repos_asks_only_for_public_repos_the_user_owns(client):
     assert params == {"visibility": "public", "affiliation": "owner", "per_page": "100"}
 ```
 
-**Step 2: Run.** Expected: **FAIL**, `ImportError: cannot import name 'fetch_repos'`.
+**Step 2: Run.** Expected: **FAIL**, `ImportError: cannot import name 'fetch_login'`.
 
 **Step 3: Implement.** In `fetch.py`, add below the existing imports:
 ```python
@@ -1281,14 +1342,14 @@ def fetch_repos(client: GitHubClient) -> tuple[list[dict], int, int]:
             kept.append(raw)
     return kept, forks, archived
 ```
-`fetch_repos` returns the **raw** dicts, not `Repo`s, because the README step still needs `full_name`, which `Repo` doesn't keep. `fetch_login` gets its test in Task 14, as part of `fetch_all`.
+`fetch_repos` returns the **raw** dicts, not `Repo`s, because the README step still needs `full_name`, which `Repo` doesn't keep.
 
 **Step 4: Run.** `python -m pytest`. Expected: all pass.
 
 **Step 5: Commit.**
 ```bash
 git add src/gh_audit/fetch.py tests/test_fetch.py
-git commit -m "List owned public repos, skipping and counting forks and archived"
+git commit -m "Fetch token owner and owned public repos, skipping forks and archived"
 ```
 
 ---
@@ -1302,7 +1363,7 @@ git commit -m "List owned public repos, skipping and counting forks and archived
 ```python
 import requests
 from gh_audit.client import API_URL, FatalError, GitHubClient
-from gh_audit.fetch import fetch_readme, fetch_repos, parse_repo
+from gh_audit.fetch import fetch_login, fetch_readme, fetch_repos, parse_repo
 ```
 Append:
 ```python
@@ -1368,7 +1429,7 @@ git commit -m "Check README per repo; record request failures as unknown"
 
 **Step 1: Add the failing tests.** Update the fetch import:
 ```python
-from gh_audit.fetch import fetch_all, fetch_readme, fetch_repos, parse_repo
+from gh_audit.fetch import fetch_all, fetch_login, fetch_readme, fetch_repos, parse_repo
 ```
 Append:
 ```python
@@ -1846,6 +1907,11 @@ def test_summary_line_with_checks():
     )
 
 
+def test_summary_line_uses_singular_for_one():
+    summary = {"audited": 1, "skipped_forks": 1, "skipped_archived": 0}
+    assert summary_line(summary) == "1 repo audited · skipped 1 fork, 0 archived"
+
+
 def test_summary_line_info_only():
     summary = {"audited": 9, "skipped_forks": 0, "skipped_archived": 0}
     assert summary_line(summary) == "9 repos audited · skipped 0 forks, 0 archived"
@@ -1890,7 +1956,7 @@ def summarize(result: AuditResult, show_checks: bool) -> dict:
 
 
 def summary_line(summary: dict) -> str:
-    parts = [f"{summary['audited']} repos audited"]
+    parts = [f"{plural(summary['audited'], 'repo')} audited"]
     if "errors" in summary:
         parts += [
             f"{summary['errors']} with errors",
@@ -1899,10 +1965,16 @@ def summary_line(summary: dict) -> str:
             f"{summary['clean']} clean",
         ]
     parts.append(
-        f"skipped {summary['skipped_forks']} forks, {summary['skipped_archived']} archived"
+        f"skipped {plural(summary['skipped_forks'], 'fork')}, {summary['skipped_archived']} archived"
     )
     return " · ".join(parts)
 ```
+Add this to the **formatting helpers** section, above `format_size` (the status column reuses it in Task 22):
+```python
+def plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+```
+Only "repo" and "fork" get the helper. "with errors", "unknown", "warnings only", "clean" and "archived" read correctly for any count.
 Add at the bottom of the file (the hygiene table reuses it in Task 22):
 ```python
 def _findings_by_repo(result: AuditResult) -> dict[str, list[Finding]]:
@@ -1936,6 +2008,15 @@ def render_text(result, show_info=True, show_checks=True):
     console = Console(file=buffer, width=120, color_system=None)
     print_tables(result, show_info, show_checks, console)
     return buffer.getvalue()
+
+
+def table_cells(text, first_cell):
+    """Return the stripped cells of the table row whose first cell is `first_cell`."""
+    for line in text.splitlines():
+        cells = [cell.strip() for cell in line.split("│")[1:-1]]
+        if cells and cells[0] == first_cell:
+            return cells
+    raise AssertionError(f"no table row starts with {first_cell!r}")
 ```
 Append:
 ```python
@@ -1943,20 +2024,19 @@ Append:
 
 def test_summary_is_printed_first():
     text = render_text(make_result())
-    assert text.startswith("1 repos audited")
+    assert text.startswith("1 repo audited")
 
 
 def test_info_table_columns_and_values():
     repo = make_repo(name="lens_slice", language=None, size=1536, open_issues=4,
                      pushed_at=datetime(2025, 8, 23, tzinfo=timezone.utc))
     text = render_text(make_result(repos=[repo]), show_checks=False)
-    assert "Info" in text
-    for expected in ["Repository", "Language", "Last push", "Open issues", "Size",
-                     "lens_slice", "—", "2025-08", "4", "1.5 MB"]:
-        assert expected in text
-    assert "Stars" not in text  # stars stay in the JSON only
+    assert table_cells(text, "Repository") == ["Repository", "Language", "Last push",
+                                               "Open issues", "Size"]
+    assert table_cells(text, "lens_slice") == ["lens_slice", "—", "2025-08", "4", "1.5 MB"]
     assert "Hygiene" not in text
 ```
+`table_cells` splits a table line on the `│` border character, so the test checks **whole rows in order**. "4" has to be the Open issues cell of that exact row, not just any "4" somewhere in the output. Comparing the header row exactly also proves Stars and Forks aren't columns.
 
 **Step 2: Run.** Expected: **FAIL**, `ImportError: cannot import name 'print_tables'`.
 
@@ -2097,9 +2177,8 @@ def _status_rows(findings: list[Finding]) -> list[tuple[str, str, str]]:
     for symbol, kind, group in groups:
         if not group:
             continue
-        label = kind if len(group) == 1 else f"{kind}s"
         names = [f.check if kind != "unknown" else f"{f.check} ({f.message})" for f in group]
-        rows.append((f"{symbol} {len(group)} {label}", ", ".join(names), STYLES[kind]))
+        rows.append((f"{symbol} {plural(len(group), kind)}", ", ".join(names), STYLES[kind]))
     return rows or [("✓ clean", "", STYLES["clean"])]
 
 
@@ -2309,7 +2388,7 @@ import pytest
 import requests
 import responses
 
-from factories import FAKE_TOKEN, make_finding, make_raw_repo
+from factories import FAKE_TOKEN, NOW, make_finding, make_raw_repo
 from gh_audit.cli import exit_code, main, parse_args
 from gh_audit.client import API_URL
 
@@ -2317,6 +2396,11 @@ from gh_audit.client import API_URL
 @pytest.fixture
 def token(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", FAKE_TOKEN)
+
+
+def run(*flags):
+    """Run the CLI with a fixed "now", so results never depend on today's date."""
+    return main(list(flags), now=NOW)
 
 
 def register_github(*raws, readme_status=200):
@@ -2334,16 +2418,19 @@ Append:
 @responses.activate
 def test_clean_account_exits_0(token, capsys):
     register_github(make_raw_repo())
-    assert main([]) == 0
+    assert run() == 0
     out = capsys.readouterr().out
-    assert "1 repos audited" in out
     assert "✓ clean" in out
+    # The whole summary stays on one line even though output isn't a terminal.
+    summary = ("1 repo audited · 0 with errors · 0 unknown · 0 warnings only · 1 clean"
+               " · skipped 0 forks, 0 archived")
+    assert summary in out.splitlines()
 
 
 @responses.activate
 def test_error_finding_exits_1(token):
     register_github(make_raw_repo(license=None))
-    assert main([]) == 1
+    assert run() == 1
 
 
 @responses.activate
@@ -2352,7 +2439,7 @@ def test_unknown_readme_exits_2_but_still_prints_results(token, capsys):
     responses.get(f"{API_URL}/user", json={"login": "octocat"})
     responses.get(f"{API_URL}/user/repos", json=[raw])
     responses.get(f"{API_URL}/repos/{raw['full_name']}/readme", body=requests.Timeout())
-    assert main([]) == 2
+    assert run() == 2
     captured = capsys.readouterr()
     assert "missing-readme (timed out after 10s)" in captured.out
     assert "README check failed" in captured.err
@@ -2361,14 +2448,14 @@ def test_unknown_readme_exits_2_but_still_prints_results(token, capsys):
 @responses.activate
 def test_info_only_skips_readme_calls_and_never_exits_1(token):
     register_github(make_raw_repo(license=None))
-    assert main(["--info"]) == 0
+    assert run("--info") == 0
     assert not any("/readme" in call.request.url for call in responses.calls)
 
 
 @responses.activate
 def test_json_output_is_valid_and_progress_stays_off_stdout(token, capsys):
     register_github(make_raw_repo())
-    main(["--json"])
+    run("--json")
     captured = capsys.readouterr()
     data = json.loads(captured.out)  # fails if any progress text leaked into stdout
     assert data["user"] == "octocat"
@@ -2378,12 +2465,15 @@ def test_json_output_is_valid_and_progress_stays_off_stdout(token, capsys):
 @responses.activate
 def test_json_checks_only(token, capsys):
     register_github(make_raw_repo(topics=[]))
-    main(["--json", "--checks"])
+    run("--json", "--checks")
     data = json.loads(capsys.readouterr().out)
     assert "repos" not in data
     assert data["findings"][0]["check"] == "missing-topics"
 ```
-`test_info_only_skips_readme_calls_and_never_exits_1` registers README URLs, so it would **pass even if** README calls were made. That's why it also checks `responses.calls`.
+Notes:
+- **Every test goes through `run()`, which passes `now=NOW`.** The fake repo was last pushed on 2026-09-01. With the real clock, that repo would turn "stale" on 2027-09-01, and `test_clean_account_exits_0` would start failing with no code change.
+- `test_info_only_skips_readme_calls_and_never_exits_1` registers README URLs, so it would **pass even if** README calls were made. That's why it also checks `responses.calls`.
+- The summary assertion uses `out.splitlines()`, so the line must be **whole**. If it had wrapped onto two lines, it wouldn't match.
 
 **Step 2: Run.** Expected: **FAIL**, `ImportError: cannot import name 'main'`.
 
@@ -2401,13 +2491,21 @@ from gh_audit.fetch import fetch_all
 from gh_audit.models import AuditResult, Finding
 from gh_audit.render import print_tables, to_json
 ```
+Add a constant under `EXIT_TOOL_FAILED`:
+```python
+REDIRECTED_WIDTH = 120
+```
 Append:
 ```python
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
+    """Run gh-audit. Tests pass `now`; the real command uses the current time."""
     args = parse_args(argv)
     show_info = not args.checks
     show_checks = not args.info
     out = Console()
+    if not out.is_terminal:
+        # Rich assumes 80 columns when output goes to a file or pipe; that wraps the summary.
+        out = Console(width=REDIRECTED_WIDTH)
     err = Console(stderr=True)
 
     token = load_token()
@@ -2417,7 +2515,8 @@ def main(argv: list[str] | None = None) -> int:
         progress=lambda message: err.print(message, style="dim", markup=False),
     )
 
-    findings = check_all(repos, datetime.now(timezone.utc)) if show_checks else []
+    now = now or datetime.now(timezone.utc)
+    findings = check_all(repos, now) if show_checks else []
     result = AuditResult(user, repos, findings, forks, archived)
 
     if args.json:
@@ -2427,7 +2526,9 @@ def main(argv: list[str] | None = None) -> int:
     return exit_code(findings)
 ```
 Notes:
+- **`now` is a parameter** for the same reason `check_repo` takes one: tests stay correct on any date. The real `gh-audit` command calls `main()` with no arguments, so it gets the real time.
 - **The consoles are created inside `main`,** not at import time, so pytest's `capsys` (which swaps `sys.stdout` per test) captures them.
+- **Under `capsys`, stdout isn't a terminal,** so the 120-column console is used. That's exactly the redirected case the summary test checks.
 - **`markup=False`** on progress messages: repo names and error reasons are data, not Rich markup.
 - **JSON uses plain `print`,** not `out.print`. Rich would add colors and wrap long lines, which would corrupt the JSON.
 
@@ -2441,18 +2542,18 @@ git commit -m "Wire fetch, checks and render together in main"
 
 ---
 
-#### Task 26: `main`, failure paths and token-leak guard
+#### Task 26: `main`, failure paths, Windows output and token-leak guard
 
 **Files:**
 - Modify: `src/gh_audit/cli.py`, `tests/test_cli.py`
 
-**Step 1: Append the failing tests.**
+**Step 1: Add the failing tests.** Add `import io` and `import sys` to the top of `tests/test_cli.py`, then append:
 ```python
 # ---------- main: failures ----------
 
 @responses.activate
 def test_missing_token_exits_2_with_help(capsys):
-    assert main([]) == 2
+    assert run() == 2
     err = capsys.readouterr().err
     assert "GitHub token not found" in err
     assert "personal-access-tokens/new" in err
@@ -2468,9 +2569,9 @@ def test_missing_token_exits_2_with_help(capsys):
         ({"body": requests.ConnectionError()}, "could not connect"),
     ],
 )
-def test_fatal_errors_exit_2_with_one_clean_line(token, capsys, kwargs, message):
+def test_fatal_errors_exit_2_without_a_traceback(token, capsys, kwargs, message):
     responses.get(f"{API_URL}/user", **kwargs)
-    assert main([]) == 2
+    assert run() == 2
     captured = capsys.readouterr()
     assert message in captured.err
     assert "Traceback" not in captured.err
@@ -2481,26 +2582,53 @@ def test_fatal_errors_exit_2_with_one_clean_line(token, capsys, kwargs, message)
 def test_repo_list_failure_aborts(token, capsys):
     responses.get(f"{API_URL}/user", json={"login": "octocat"})
     responses.get(f"{API_URL}/user/repos", body=requests.Timeout())
-    assert main([]) == 2
+    assert run() == 2
     assert "Error: timed out after 10s" in capsys.readouterr().err
+
+
+@responses.activate
+def test_redirected_output_on_windows_does_not_crash(token, monkeypatch):
+    # Simulate Windows sending stdout to a file: a cp1252 stream, which can't encode "✓".
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    register_github(make_raw_repo())
+    assert run() == 0
+    sys.stdout.flush()
+    assert "✓ clean" in raw.getvalue().decode("utf-8")
 
 
 @responses.activate
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
 def test_token_never_appears_in_any_output(token, capsys, status):
     responses.get(f"{API_URL}/user", status=status)
-    main([])
+    run()
     captured = capsys.readouterr()
     assert FAKE_TOKEN not in captured.out + captured.err
 ```
+About the Windows test: on Windows, when output goes to a file or pipe, Python writes it in the old **cp1252** character set, which has no ✓ ✗ ⚠, so the program crashed with `UnicodeEncodeError`. `capsys` always uses UTF-8, so no other test can see this bug. This test rebuilds the Windows situation on any OS by swapping `sys.stdout` for a cp1252 stream over an in-memory byte buffer.
 `test_missing_token_exits_2_with_help` uses `@responses.activate` even though it shouldn't make any requests. If the code wrongly tried to call GitHub, `responses` blocks it, so the test fails safely instead of reaching the internet.
 
-**Step 2: Run.** Expected: **FAIL**. Exceptions escape from `main` instead of an exit code being returned.
+**Step 2: Run.** Expected: **FAIL**.
+- The token, fatal-error, repo-list and token-leak tests fail because exceptions (`RequestError`, `FatalError`) escape from `main` instead of an exit code being returned.
+- The Windows test fails with **`UnicodeEncodeError: 'charmap' codec can't encode character '✓'`**.
 
-**Step 3: Implement.** Update the imports in `cli.py`:
+**Step 3: Implement.** Add `import sys` to the imports in `cli.py`, and update these two lines:
 ```python
 from gh_audit.auth import MISSING_TOKEN_MESSAGE, load_token
 from gh_audit.client import GitHubClient, GitHubError
+```
+Add this function above `main`:
+```python
+def use_utf8_output() -> None:
+    """Windows writes redirected output as cp1252, which can't encode ✓ ✗ ⚠. Switch to UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+```
+In `main`, call it right after the `show_checks = ...` line, **before** any `Console` is created:
+```python
+    use_utf8_output()
 ```
 In `main`, replace everything from `token = load_token()` down to the end of the `fetch_all(...)` call with:
 ```python
@@ -2523,13 +2651,14 @@ Notes:
 - **We catch `GitHubError`, the base class,** so both kinds abort here. That covers a `FatalError` anywhere, and a `RequestError` from `/user` or `/user/repos`. A README `RequestError` never reaches this point, because `fetch_readme` already handled it.
 - **We catch nothing else.** A genuine bug (say a `KeyError`) should still show a traceback, because hiding bugs makes them impossible to fix. The "no stack traces" rule is about *expected* failures.
 - **`highlight=False`** stops Rich from auto-coloring numbers and URLs inside the message.
+- **`use_utf8_output` only touches streams that aren't UTF-8 already.** On Linux, in Docker, and on the Windows console itself, nothing changes. `reconfigure` must happen before anything is written, which is why it runs first.
 
 **Step 4: Run.** `python -m pytest`. Expected: all pass.
 
 **Step 5: Commit.**
 ```bash
 git add src/gh_audit/cli.py tests/test_cli.py
-git commit -m "Handle missing token and GitHub errors with exit code 2"
+git commit -m "Handle missing token and GitHub errors; force UTF-8 output"
 ```
 
 ---
@@ -2549,19 +2678,31 @@ This makes `python -m gh_audit` behave exactly like `gh-audit`.
 
 **Step 2: Check what you can, safely.** These commands make **no network calls**.
 ```bash
-python -m pytest                 # all tests pass (103)
+python -m pytest                 # all tests pass (107)
 gh-audit --help                  # shows usage with --info/--checks/--json
 gh-audit --info --checks         # "not allowed with" error, exit code 2
 ```
 **Don't run plain `gh-audit` yourself.** Depending on how your machine is set up, it could pick up a real token.
 
-**Step 3: Live check (the project owner does this).** Ask the owner to run these commands with their real token and confirm the results:
+**Step 3: Live check (the project owner does this).** Ask the owner to run these commands with their real token and confirm the results.
+
+PowerShell:
+```powershell
+gh-audit                                   # summary line, Info and Hygiene tables
+gh-audit --checks; $LASTEXITCODE           # 1 if any repo has an error
+gh-audit --json | python -m json.tool > $null; if ($?) { "valid JSON" }
+gh-audit --json --info
+gh-audit > out.txt; Get-Content out.txt -Encoding utf8   # no crash, symbols intact
+```
+Bash (Linux/macOS/Git Bash):
 ```bash
-gh-audit                         # summary line, Info and Hygiene tables
-gh-audit --checks; echo $?       # exit code 1 if any repo has an error
+gh-audit
+gh-audit --checks; echo $?
 gh-audit --json | python -m json.tool > /dev/null && echo "valid JSON"
 gh-audit --json --info
+gh-audit > out.txt && cat out.txt
 ```
+Delete `out.txt` afterwards.
 Record anything surprising they report as a new task. Don't patch it silently.
 
 **Step 4: Commit.**
@@ -2600,9 +2741,12 @@ ENTRYPOINT ["gh-audit"]
 docker build -t gh-audit .
 docker run --rm gh-audit --help
 docker run --rm gh-audit; echo $?     # "GitHub token not found", exit 2
+# PowerShell: docker run --rm gh-audit; $LASTEXITCODE
 ```
 
-**Step 3: Live check (owner):** `docker run --rm --env-file ~/.config/gh-audit/.env gh-audit --checks`
+**Step 3: Live check (owner).**
+- Bash: `docker run --rm --env-file ~/.config/gh-audit/.env gh-audit --checks`
+- PowerShell: `docker run --rm --env-file "$HOME\.config\gh-audit\.env" gh-audit --checks`
 Note for the README: Docker's `--env-file` doesn't strip quotes, so the line must be `GITHUB_TOKEN=abc`, not `GITHUB_TOKEN="abc"`.
 
 **Step 4: Commit.**
@@ -2745,14 +2889,21 @@ Expected: no output. If anything shows up, update it first.
 git rm github_auditor.py requirements.txt
 ```
 
-**Step 3: Full check from a clean environment.**
+**Step 3: Full check from a clean environment.** This uses a **normal (non-editable) install**, so the tests run against the built package. That proves `pyproject.toml` really packages every module.
+
+Bash:
 ```bash
 python -m venv /tmp/gh-audit-check
-# Windows: python -m venv %TEMP%\gh-audit-check
-/tmp/gh-audit-check/bin/python -m pip install -e ".[dev]"
+/tmp/gh-audit-check/bin/python -m pip install ".[dev]"
 /tmp/gh-audit-check/bin/python -m pytest
 ```
-Expected: **103 passed**.
+PowerShell:
+```powershell
+python -m venv "$env:TEMP\gh-audit-check"
+& "$env:TEMP\gh-audit-check\Scripts\python.exe" -m pip install ".[dev]"
+& "$env:TEMP\gh-audit-check\Scripts\python.exe" -m pytest
+```
+Expected: **107 passed**. Delete the `gh-audit-check` folder afterwards.
 
 **Step 4: Commit.**
 ```bash
@@ -2774,6 +2925,7 @@ git push origin master
 ```
 pyproject.toml
 README.md
+CLAUDE.md
 LICENSE
 Dockerfile
 .dockerignore
@@ -2796,11 +2948,12 @@ tests/
   conftest.py      # autouse: hide the real token
   factories.py     # make_repo, make_raw_repo, make_finding, NOW, FAKE_TOKEN
   test_auth.py     # 7 tests
-  test_client.py   # 28 tests (counting parametrize cases)
-  test_fetch.py    # 14 tests
+  test_client.py   # 29 tests (counting parametrize cases)
+  test_fetch.py    # 15 tests
   test_checks.py   # 15 tests
-  test_render.py   # 21 tests
-  test_cli.py      # 18 tests
+  test_render.py   # 22 tests
+  test_cli.py      # 19 tests
+                   # total: 107
 ```
 
 **Who may import whom** (enforce this in review):
