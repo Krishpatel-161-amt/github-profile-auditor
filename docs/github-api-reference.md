@@ -1,6 +1,6 @@
 # GitHub REST API — Condensed Reference (Personal Repo Automation)
 
-Source: "GitHub REST API Architecture and Implementation for Personal Repository Automation" (full report: `detailed full report/GitHub REST API for Personal Automation.md`). Items marked **[unverified]** come only from the report and post-date independent knowledge; check GitHub docs/changelog before relying on them. Items marked **[correction]** override the report.
+Source: "GitHub REST API Architecture and Implementation for Personal Repository Automation" (full report: `github-api-full-report.md`). Items marked **[unverified]** come only from the report and post-date independent knowledge; check GitHub docs/changelog before relying on them. Items marked **[correction]** override the report.
 
 ## Request baseline (every call)
 
